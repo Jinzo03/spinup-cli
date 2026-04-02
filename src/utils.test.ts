@@ -1,6 +1,7 @@
 
+import os from 'os';
 import { describe, it, expect } from 'vitest';
-import { validateProjectName } from './utils.js';
+import { getExecutableName, getTemplateRepoUrl, validateProjectName } from './utils.js';
 
 describe('validateProjectName', () => {
   it('should return true for valid project names', () => {
@@ -18,5 +19,18 @@ describe('validateProjectName', () => {
     expect(validateProjectName('my project')).toBe('Use only letters, numbers, hyphens, and underscores');
     expect(validateProjectName('project@123')).toBe('Use only letters, numbers, hyphens, and underscores');
     expect(validateProjectName('react/app')).toBe('Use only letters, numbers, hyphens, and underscores');
+  });
+});
+
+describe('getExecutableName', () => {
+  it('should resolve platform-specific executable names', () => {
+    const expected = os.platform() === 'win32' ? 'git.cmd' : 'git';
+    expect(getExecutableName('git')).toBe(expected);
+  });
+});
+
+describe('getTemplateRepoUrl', () => {
+  it('should build a GitHub clone URL from the template repo slug', () => {
+    expect(getTemplateRepoUrl('owner/repo')).toBe('https://github.com/owner/repo.git');
   });
 });
