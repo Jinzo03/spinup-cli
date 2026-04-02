@@ -4,32 +4,38 @@ import { Command } from 'commander';
 import { input, select } from '@inquirer/prompts';
 import fs from 'fs/promises';
 import path from 'path';
-import { exec, execSync} from 'child_process';
+import { spawnSync } from 'child_process';
 import chalk from 'chalk';
 import ora from 'ora';
+import { validateProjectName } from './utils.js';
 
-// Initialize a new Command instance
+// Initialize CLI
 const program = new Command();
 
-// Set up basic info about your tool
 program
   .name('spinup')
   .description('A professional CLI tool to scaffold new coding projects')
   .version('1.0.0');
 
-// Create the 'new' command
+// Framework → template mapping
+const TEMPLATE_MAP: Record<string, string> = {
+  'vanilla-ts': 'vitejs/vite/packages/create-vite/template-vanilla-ts',
+  'react': 'vitejs/vite/packages/create-vite/template-react',
+  'express': 'expressjs/express/examples/hello-world', // safer fallback example
+};
+
 program
   .command('new')
   .description('Create a new project setup')
   .action(async () => {
-    console.log(chalk.cyan.bold('\n Let\'s set up a new project!\n'));
+    console.log(chalk.cyan.bold('\nLet\'s set up a new project!\n'));
 
-    // 1. Ask for the project name (Text input)
-    const projectName = await input({ 
-        message: 'What is the name of your project?' 
+    // 1. Project name input with validation
+    const projectName = await input({
+     message: 'What is the name of your project?',
+     validate: validateProjectName // Use the extracted function
     });
-    
-    // 2. Ask for the framework (Multiple choice)
+
     const framework = await select({
       message: 'Which framework do you want to use?',
       choices: [
@@ -39,58 +45,99 @@ program
       ],
     });
 
-    const spinner = ora(`Scaffolding ${chalk.green(framework)} project in ${chalk.blue('./' + projectName)}...`).start();
-    
+    const pkgManager = await select({
+      message: 'Which package manaegr do you want to use?',
+      choices : [
+        { name: 'npm', value: 'npm' },
+        { name: 'yarn', value: 'yarn' },
+        { name: 'pnpm', value: 'pnpm' },
+        { name: 'bun', value: 'bun' }
+      ],
+    });
+
+    const currentDir = process.cwd();
+    const projectDir = path.join(currentDir, projectName);
+
+    // 2. Prevent overwrite
     try {
-        // 1. Define the path where the user ran the command
-        const currentDir = process.cwd();
-        const projectDir = path.join(currentDir, projectName);
+      await fs.access(projectDir);
+      console.log(chalk.red(`\n❌ Folder "${projectName}" already exists.`));
+      process.exit(1);
+    } catch {
+      // Folder does not exist → OK
+    }
 
-        // 2. Create the main project folder
-        await fs.mkdir(projectDir, { recursive: true });
+    const spinner = ora('Starting project setup...').start();
 
-        // 3. Create a customized README.md
-        const readmeContent = `# ${projectName}\n\nThis project was generated using SpinUp CLI.\n\nFramework: ${framework}`;
-        await fs.writeFile(path.join(projectDir, 'README.md'), readmeContent);
+    try {
+      const templateRepo = TEMPLATE_MAP[framework];
 
-        // 4. Create a basic entry file based on their choice
-        let entryFileName = 'index.js';
-        let entryFileContent = 'console.log("Hello World")';
-
-        if (framework === 'vanilla-ts') {
-            entryFileName = 'index.ts';
-            entryFileContent = 'const greeting: string = "Hello TypeScript"; \nconsole.log(greeting);';  
-        } else if (framework === 'react') {
-        entryFileName = 'App.jsx';
-        entryFileContent = 'export default function App() { return <h1>Hello React</h1>; }';
-      } else if (framework === 'express') {
-        entryFileName = 'server.js';
-        entryFileContent = 'const express = require("express");\nconst app = express();\n\napp.listen(3000, () => console.log("Server running"));';
+      if (!templateRepo) {
+        throw new Error('Invalid framework selected');
       }
 
-      // 5. Write the entry file inside the new project folder
-      await fs.writeFile(path.join(projectDir, entryFileName), entryFileContent);
+      spinner.text = `Downloading ${framework} template...`;
 
-      // 6. Run terminal commands inside the new project folder
-      // We pass { cwd: projeDir } so the command runs inside the new folder
-      // We pass { stdio: 'ignore' } so it doesn't clutter the user's terminal
-      spinner.text = 'Initializing Git and npm...';
+      // 3. Safe command execution (no injection)
+      const tiged = spawnSync(
+        'npx',
+        ['tiged', templateRepo, projectName, '--force'],
+        { stdio: 'ignore' }
+      );
 
-      execSync('npm init -y', {cwd: projectDir, stdio: 'ignore' });
-      execSync('git init', { cwd : projectDir, stdio: 'ignore' });
+      if (tiged.status !== 0) {
+        throw new Error('Failed to download template');
+      }
 
-      // Create a basic .gitignore so they don't commt node_modules
-      await fs.writeFile(path.join(projectDir, '.gitignore'), 'node_modules\n.DS_Store');
+      spinner.text = 'Initializing npm and git...';
 
-      spinner.succeed(chalk.green.bold('Project successfully generated!'))
-    
+      const npmInit = spawnSync('npm', ['init', '-y'], {
+        cwd: projectDir,
+        stdio: 'ignore',
+      });
+
+      const gitInit = spawnSync('git', ['init'], {
+        cwd: projectDir,
+        stdio: 'ignore',
+      });
+
+      if (npmInit.status !== 0 || gitInit.status !== 0) {
+        throw new Error('npm or git initialization failed');
+      }
+
+      spinner.text = `Initializing dependencies using ${pkgManager}... This might take a minute.`;
+
+      const installDeps = spawnSync(pkgManager, ['install'], {
+        cwd: projectDir,
+        stdio: 'ignore',
+      });
+
+      if (installDeps.status !==0) {
+        throw new Error(`${pkgManager} install failed. Do you have it installed on your machine?`);
+      }
+      // 4. Create .gitignore
+      await fs.writeFile(
+        path.join(projectDir, '.gitignore'),
+        'node_modules\n.DS_Store\n.env\n'
+      );
+
+      spinner.succeed(chalk.green.bold('Project successfully created!'));
+
       console.log(`\n${chalk.bold('Next steps:')}`);
       console.log(chalk.cyan(`  cd ${projectName}`));
-      console.log(chalk.cyan(`  npm install\n`));
+      console.log(chalk.cyan(`  npm install`));
+      console.log(chalk.cyan(`  npm run dev\n`));
+
     } catch (error) {
-        spinner.fail(chalk.red.bold('An erro occured while creating the project. '));
-        console.error(error);
+      spinner.fail(chalk.red.bold('Project creation failed.'));
+      if (error instanceof Error) {
+        console.error(chalk.red(error.message));
+      } else {
+        console.error(chalk.red(String(error)));
+      }
+      process.exit(1);
     }
-});
-// Tell commander to parse the arguments from the terminal
-program.parse(process.argv);
+  });
+
+// Proper async parsing
+await program.parseAsync(process.argv);

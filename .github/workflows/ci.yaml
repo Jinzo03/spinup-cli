@@ -1,0 +1,36 @@
+name: CI Pipeline
+
+# Tell GitHub when to run this script
+on:
+    push:
+        branches: ["main"]
+    pull_request:
+        branches: ["main"]
+
+# Tell GitHub what to od
+jobs:
+    build-and-test:
+        runs-on: ubuntu-latest #
+
+        steps:
+            # 1. Download the code onto the server
+            - name: Checkout Repository
+              uses: actions/checkout@v4
+            
+            # 2. Install Node.js on the server
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                node-version: '20'
+             
+            # 3. Install your package dependencies
+            - name: Install Dependecies
+              run: npm install
+
+            # 4. Compile the TS into JS
+            - name: Build TypeScript
+              run: npm run build
+             
+            # 5. Run the VItest unit tests
+            - name: Run Unit Tests
+              run: npm test  
