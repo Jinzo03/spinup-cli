@@ -1,8 +1,13 @@
 node_modules/
 dist/
+.next/
+out/
 coverage/
 *.tsbuildinfo
 .vitest-attachments/
+.turbo/
+.vercel/
+.parcel-cache/
 
 *.log
 npm-debug.log*
